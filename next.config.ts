@@ -34,7 +34,7 @@ const nextConfig: NextConfig = {
     // - Production/Vercel: proxy to the deployed backend domain.
     const defaultTarget =
       process.env.VERCEL || process.env.NODE_ENV === "production"
-        ? "https://backend-liard-eta-86.vercel.app"
+        ? "https://aurawatt-backend.vercel.app"
         : "http://localhost:5000";
 
     const target = normalizeApiBaseUrl(envTarget || defaultTarget);
