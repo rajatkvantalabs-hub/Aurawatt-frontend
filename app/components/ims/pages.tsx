@@ -15325,6 +15325,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       : visibleComplaintRows;
     const query = complaintListSearch.trim().toLowerCase();
     if (!query) return statusScoped;
+    const normalizedQuery = query.replace(/[\s-]+/g, "");
     return statusScoped.filter((complaint) => {
       const haystack = [
         complaint.ticketNumber, // human-readable Ticket ID (e.g. AW-20260716-0008) shown in the UI
@@ -15347,7 +15348,12 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         complaint.status,
         complaint.issueDescription,
       ].filter(Boolean).join(" ").toLowerCase();
-      return haystack.includes(query);
+      if (haystack.includes(query)) return true;
+      if (normalizedQuery) {
+        const normalizedHaystack = haystack.replace(/[\s-]+/g, "");
+        if (normalizedHaystack.includes(normalizedQuery)) return true;
+      }
+      return false;
     });
   }, [complaintListSearch, complaintListStatusFilter, visibleComplaintRows]);
   const complaintListTotalPages = Math.max(1, Math.ceil(filteredComplaintRows.length / COMPLAINT_LIST_PAGE_SIZE));
