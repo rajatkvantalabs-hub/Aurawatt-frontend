@@ -19671,7 +19671,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 <SearchBar value={complaintListSearch} onChange={setComplaintListSearch} />
                 <div className="flex items-center gap-2 text-xs text-gray-500">
                   <span>Page {Math.min(complaintListPage, complaintListTotalPages)} / {complaintListTotalPages}</span>
-                  <span>8 per page</span>
+                  <span>{COMPLAINT_LIST_PAGE_SIZE} per page</span>
                 </div>
               </div>
               {(isServiceEngineerRole || isServiceAdmin) && (

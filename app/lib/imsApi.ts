@@ -1273,8 +1273,8 @@ export async function uploadComplaintInverterPicture(file: File) {
   });
 }
 
-export async function listComplaints(params: { type?: string; status?: string; view?: "onsite-tracking" } = {}) {
-  return apiGet<ApiPage<Complaint>>("/api/complaints", { page: 1, limit: 1000, ...params });
+export async function listComplaints(params: { type?: string; status?: string; view?: "onsite-tracking"; page?: number; limit?: number; search?: string } = {}) {
+  return apiGet<ApiPage<Complaint>>("/api/complaints", { page: 1, limit: 5000, ...params });
 }
 
 export async function listServiceEngineers() {
