@@ -15314,6 +15314,29 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     [sentForOnsiteRows]
   );
   const closedQueueCount = useMemo(() => closedQueueRows.length, [closedQueueRows]);
+  const totalComplaintsCount = useMemo(() => {
+    return Math.max(complaintsRes.data?.total ?? 0, complaintRows.length);
+  }, [complaintsRes.data?.total, complaintRows.length]);
+  const adminActiveTicketsCount = useMemo(() => {
+    return (
+      adminWaitingRows.length +
+      adminAssignedRows.length +
+      adminEscalatedRows.length +
+      adminEscalatedL3Rows.length +
+      adminHoldRows.length +
+      adminInProgressRows.length
+    );
+  }, [
+    adminWaitingRows.length,
+    adminAssignedRows.length,
+    adminEscalatedRows.length,
+    adminEscalatedL3Rows.length,
+    adminHoldRows.length,
+    adminInProgressRows.length,
+  ]);
+  const adminTotalClosedCount = useMemo(() => {
+    return Math.max(closedQueueCount, totalComplaintsCount - adminActiveTicketsCount);
+  }, [closedQueueCount, totalComplaintsCount, adminActiveTicketsCount]);
   /** Distinct statuses present in the current queue tab, rendered as the L3 status-filter pill buttons. */
   const complaintListStatusOptions = useMemo(
     () => Array.from(new Set(visibleComplaintRows.map((complaint) => complaint.status))).sort(),
@@ -19631,8 +19654,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       ? `Active: ${complaintRows.length} | Hold: ${l1HoldRows.length} | Spare/Replacement: ${dispatchTrackingCount} | Closed: ${closedQueueCount}`
                       : `Active: ${l1VisibleActiveTicketCount}/5 | Waiting: ${Math.min(l1VisibleWaitingTicketCount, 5)}/5 | Onsite: ${l1OnsiteTicketCount}${sentForOnsiteCount > 0 ? ` | Sent for Onsite: ${sentForOnsiteCount}` : ""} | Closed: ${closedQueueCount}`
                   : isServiceAdmin
-                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | Escalated to L2: ${adminEscalatedRows.length} | Escalated to L3: ${adminEscalatedL3Rows.length} | On Hold: ${adminHoldRows.length} | In Progress: ${adminInProgressRows.length} | Closed: ${closedQueueCount} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
-                      : `${filteredComplaintRows.length} of ${complaintRows.length} tickets`}
+                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | Escalated to L2: ${adminEscalatedRows.length} | Escalated to L3: ${adminEscalatedL3Rows.length} | On Hold: ${adminHoldRows.length} | In Progress: ${adminInProgressRows.length} | Closed: ${adminTotalClosedCount} | ${filteredComplaintRows.length} of ${totalComplaintsCount} tickets`
+                      : `${filteredComplaintRows.length} of ${totalComplaintsCount} tickets`}
                 </div>
               </div>
               <button
@@ -19654,7 +19677,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
               {(isServiceEngineerRole || isServiceAdmin) && (
                 <div className="mb-3 flex flex-wrap gap-2">
                   {(isServiceAdmin ? [
-                    { id: "active", label: "All Tickets", count: complaintRows.length },
+                    { id: "active", label: "All Tickets", count: totalComplaintsCount },
                     { id: "waiting", label: "Waiting Lobby", count: adminWaitingRows.length },
                     { id: "assigned", label: "Assigned to Engineer", count: adminAssignedRows.length },
                     { id: "escalatedl2", label: "Escalated to L2", count: adminEscalatedRows.length },
@@ -19662,7 +19685,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     { id: "hold", label: "Hold Tickets", count: adminHoldRows.length },
                     { id: "inprogress", label: "In Progress", count: adminInProgressRows.length },
                     { id: "team", label: "Team / Reassign", count: teamTicketRows.length },
-                    { id: "closed", label: "Closed Tickets", count: closedQueueCount },
+                    { id: "closed", label: "Closed Tickets", count: adminTotalClosedCount },
                   ] : [
                     { id: "active", label: "Active Work", count: l1VisibleActiveTicketCount },
                     ...(currentServiceAssignmentRole !== "L3 Advanced OEM Support" ? [{ id: "waiting", label: "Waiting Lobby", count: Math.min(l1VisibleWaitingTicketCount, 5) }] : []),
