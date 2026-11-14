@@ -17,7 +17,7 @@ type ApiFail = { success: false; message: string };
 
 const TOKEN_KEY = "aurawatt:token";
 
-function apiBaseUrl(): string {
+export function apiBaseUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_BASE_URL;
   const base = normalizeApiBaseUrl(raw ?? "");
 

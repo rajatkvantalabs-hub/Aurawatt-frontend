@@ -1,6 +1,6 @@
 "use client";
 
-import { apiDelete, apiGet, apiPost, apiPut, apiRequest } from "./api";
+import { apiBaseUrl, apiDelete, apiGet, apiPost, apiPut, apiRequest, getAuthToken } from "./api";
 
 export type ApiPage<T> = { data: T[]; total: number; page: number; limit: number };
 
@@ -1275,6 +1275,55 @@ export async function uploadComplaintInverterPicture(file: File) {
 
 export async function listComplaints(params: { type?: string; status?: string; view?: "onsite-tracking"; page?: number; limit?: number; search?: string } = {}) {
   return apiGet<ApiPage<Complaint>>("/api/complaints", { page: 1, limit: 5000, ...params });
+}
+
+export async function downloadComplaintsExport(params: {
+  type?: string;
+  status?: string;
+  preset?: string;
+  fromDate?: string;
+  toDate?: string;
+  state?: string;
+  engineer?: string;
+  search?: string;
+} = {}) {
+  const qs = new URLSearchParams();
+  if (params.type) qs.set("type", params.type);
+  if (params.status) qs.set("status", params.status);
+  if (params.preset) qs.set("preset", params.preset);
+  if (params.fromDate) qs.set("fromDate", params.fromDate);
+  if (params.toDate) qs.set("toDate", params.toDate);
+  if (params.state) qs.set("state", params.state);
+  if (params.engineer) qs.set("engineer", params.engineer);
+  if (params.search) qs.set("search", params.search);
+
+  const base = apiBaseUrl();
+  const token = getAuthToken();
+  const url = `${base}/api/complaints/export?${qs.toString()}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({ message: "Export failed" }));
+    throw new Error(errorBody.message || "Failed to download complaints export");
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition");
+  const filenameMatch = disposition && disposition.match(/filename="?([^";]+)"?/);
+  const filename = filenameMatch ? filenameMatch[1] : `Aurawatt_Complaints_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+  const blobUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(blobUrl);
 }
 
 export async function listServiceEngineers() {

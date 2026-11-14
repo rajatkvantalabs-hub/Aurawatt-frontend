@@ -22,6 +22,8 @@ import {
   IconX,
   IconPencil,
   IconTrash,
+  IconDownload,
+  IconFilter,
 } from "../icons/Icons";
 export { default as SalesAssignmentManagementPage } from "./SalesAssignmentManagementPage";
 import {
@@ -101,6 +103,7 @@ import {
   uploadComplaintInverterPicture,
   getRawMaterialMeta,
   listComplaints,
+  downloadComplaintsExport,
   listServiceEngineers,
   listMyL1Team,
   checkAmIL1Backup,
@@ -14907,6 +14910,16 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [closedTicketSearch, setClosedTicketSearch] = useState("");
   const [closedTicketFromDate, setClosedTicketFromDate] = useState("");
   const [closedTicketToDate, setClosedTicketToDate] = useState("");
+  const [exportingAll, setExportingAll] = useState(false);
+  const [customExportOpen, setCustomExportOpen] = useState(false);
+  const [exportingCustom, setExportingCustom] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const [exportPreset, setExportPreset] = useState<"all" | "today" | "week" | "this_month" | "last_month" | "custom">("all");
+  const [exportStatus, setExportStatus] = useState<"all" | "closed" | "active" | "hold" | "escalated">("all");
+  const [exportFromDate, setExportFromDate] = useState("");
+  const [exportToDate, setExportToDate] = useState("");
+  const [exportState, setExportState] = useState("all");
+  const [exportEngineer, setExportEngineer] = useState("all");
   const [selectedComplaintId, setSelectedComplaintId] = useState("");
   const [selectedClosedComplaintId, setSelectedClosedComplaintId] = useState("");
   const [serviceActionId, setServiceActionId] = useState("");
@@ -15454,6 +15467,110 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     ))
   ), [serviceEngineersRes.data]);
   const onsiteEngineerOptions = useMemo(() => serviceEngineersByRole.get(siteVisitRole) ?? [], [serviceEngineersByRole, siteVisitRole]);
+
+  const availableExportStates = useMemo(() => {
+    const set = new Set<string>();
+    (complaintsRes.data?.data ?? []).forEach((c) => {
+      if (c.state && c.state.trim()) set.add(c.state.trim());
+    });
+    return Array.from(set).sort();
+  }, [complaintsRes.data]);
+
+  const availableExportEngineers = useMemo(() => {
+    const set = new Set<string>();
+    (complaintsRes.data?.data ?? []).forEach((c) => {
+      if (c.assignedEngineerName && c.assignedEngineerName.trim()) set.add(c.assignedEngineerName.trim());
+    });
+    return Array.from(set).sort();
+  }, [complaintsRes.data]);
+
+  const customExportMatchCount = useMemo(() => {
+    const all = complaintsRes.data?.data ?? [];
+    return all.filter((c) => {
+      if (exportStatus === "closed") {
+        if (!closedComplaintStatuses.includes(c.status)) return false;
+      } else if (exportStatus === "active") {
+        if (closedComplaintStatuses.includes(c.status)) return false;
+      } else if (exportStatus === "hold") {
+        if (c.status !== HOLD_TICKET_STATUS) return false;
+      } else if (exportStatus === "escalated") {
+        if (!c.status.toLowerCase().startsWith("escalated")) return false;
+      }
+
+      const cDate = new Date(c.dateOfComplaint || c.createdAt || "");
+      const cTime = cDate.getTime();
+      if (!isNaN(cTime)) {
+        const now = new Date();
+        if (exportPreset === "today") {
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+          if (cTime < todayStart) return false;
+        } else if (exportPreset === "week") {
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).setHours(0, 0, 0, 0);
+          if (cTime < weekAgo) return false;
+        } else if (exportPreset === "this_month") {
+          const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+          if (cTime < monthStart) return false;
+        } else if (exportPreset === "last_month") {
+          const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+          const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999).getTime();
+          if (cTime < lastMonthStart || cTime > lastMonthEnd) return false;
+        } else if (exportPreset === "custom") {
+          if (exportFromDate) {
+            const fromTime = new Date(`${exportFromDate}T00:00:00`).getTime();
+            if (cTime < fromTime) return false;
+          }
+          if (exportToDate) {
+            const toTime = new Date(`${exportToDate}T23:59:59`).getTime();
+            if (cTime > toTime) return false;
+          }
+        }
+      }
+
+      if (exportState !== "all" && c.state?.toLowerCase() !== exportState.toLowerCase()) {
+        return false;
+      }
+      if (exportEngineer !== "all" && c.assignedEngineerName?.toLowerCase() !== exportEngineer.toLowerCase()) {
+        return false;
+      }
+      return true;
+    }).length;
+  }, [complaintsRes.data, exportStatus, exportPreset, exportFromDate, exportToDate, exportState, exportEngineer, closedComplaintStatuses]);
+
+  const handleExportAll = async () => {
+    try {
+      setExportingAll(true);
+      setExportError("");
+      await downloadComplaintsExport({ type: "Consumer", status: "all" });
+    } catch (err: any) {
+      console.error("Export all complaints failed:", err);
+      setExportError(err?.message || "Failed to download complaints export");
+    } finally {
+      setExportingAll(false);
+    }
+  };
+
+  const handleCustomExportDownload = async () => {
+    try {
+      setExportingCustom(true);
+      setExportError("");
+      await downloadComplaintsExport({
+        type: "Consumer",
+        status: exportStatus,
+        preset: exportPreset,
+        fromDate: exportPreset === "custom" ? exportFromDate : undefined,
+        toDate: exportPreset === "custom" ? exportToDate : undefined,
+        state: exportState !== "all" ? exportState : undefined,
+        engineer: exportEngineer !== "all" ? exportEngineer : undefined,
+      });
+      setCustomExportOpen(false);
+    } catch (err: any) {
+      console.error("Custom complaints export failed:", err);
+      setExportError(err?.message || "Failed to download custom complaints export");
+    } finally {
+      setExportingCustom(false);
+    }
+  };
+
   const pendingL3ApprovalComplaint = useMemo(() => complaintRows.find((complaint) => complaint.status === "Pending L3 Approval") ?? null, [complaintRows]);
   const selectedComplaint = complaintRows.find((complaint) => complaint.id === selectedComplaintId) ?? (currentRole === "L1 Engineer" ? null : pendingL3ApprovalComplaint ?? complaintRows[0] ?? null);
   const isWaitingLobbyViewOnly = Boolean(
@@ -19668,12 +19785,45 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <SearchBar value={complaintListSearch} onChange={setComplaintListSearch} />
-                <div className="flex items-center gap-2 text-xs text-gray-500">
+                <div className="flex flex-1 flex-wrap items-center gap-2">
+                  <div className="min-w-[220px] flex-1">
+                    <SearchBar value={complaintListSearch} onChange={setComplaintListSearch} />
+                  </div>
+                  {isServiceAdmin && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleExportAll}
+                        disabled={exportingAll}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-sm hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Download all complaints to Excel (.xlsx)"
+                      >
+                        <IconDownload size={14} className="text-emerald-700" />
+                        <span>{exportingAll ? "Exporting..." : "Export All"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setCustomExportOpen(true); setExportError(""); }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800 shadow-sm hover:bg-blue-100"
+                        title="Filter and download customized complaints to Excel (.xlsx)"
+                      >
+                        <IconFilter size={14} className="text-blue-700" />
+                        <span>Custom Export</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-500 shrink-0">
                   <span>Page {Math.min(complaintListPage, complaintListTotalPages)} / {complaintListTotalPages}</span>
                   <span>{COMPLAINT_LIST_PAGE_SIZE} per page</span>
                 </div>
               </div>
+              {exportError && (
+                <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 flex items-center justify-between">
+                  <span>{exportError}</span>
+                  <button type="button" onClick={() => setExportError("")} className="text-rose-500 hover:text-rose-700 font-bold ml-2">×</button>
+                </div>
+              )}
               {(isServiceEngineerRole || isServiceAdmin) && (
                 <div className="mb-3 flex flex-wrap gap-2">
                   {(isServiceAdmin ? [
@@ -20259,6 +20409,179 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {customExportOpen && (
+        <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+            <div className="shrink-0 flex items-center justify-between border-b border-gray-100 px-5 py-4 bg-gradient-to-r from-blue-50/60 to-indigo-50/60">
+              <div>
+                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                  <IconDownload size={18} className="text-blue-600" />
+                  Custom Export Complaints
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">Download filtered complaints in Excel spreadsheet (.xlsx) format</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCustomExportOpen(false)}
+                className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 flex items-center justify-center"
+              >
+                <IconX size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4 max-h-[70vh] overflow-y-auto">
+              {/* Date Presets */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                  Date Range Filter
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: "all", label: "All Time" },
+                    { id: "today", label: "Today" },
+                    { id: "week", label: "Last 7 Days" },
+                    { id: "this_month", label: "This Month" },
+                    { id: "last_month", label: "Last Month" },
+                    { id: "custom", label: "Custom Range" },
+                  ].map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setExportPreset(preset.id as any)}
+                      className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-all ${
+                        exportPreset === preset.id
+                          ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm font-bold ring-1 ring-blue-500"
+                          : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                {exportPreset === "custom" && (
+                  <div className="mt-3 grid grid-cols-2 gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">From Date</label>
+                      <input
+                        type="date"
+                        value={exportFromDate}
+                        onChange={(e) => setExportFromDate(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-800 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">To Date</label>
+                      <input
+                        type="date"
+                        value={exportToDate}
+                        onChange={(e) => setExportToDate(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-800 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                  Ticket Status Filter
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: "all", label: "All Statuses" },
+                    { id: "closed", label: "Only Closed Tickets" },
+                    { id: "active", label: "Only Active / Open" },
+                    { id: "hold", label: "Only On Hold Tickets" },
+                    { id: "escalated", label: "Escalated Tickets (L2/L3)" },
+                  ].map((st) => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => setExportStatus(st.id as any)}
+                      className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-all text-left ${
+                        exportStatus === st.id
+                          ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm font-bold ring-1 ring-blue-500"
+                          : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* State & Engineer Dropdowns */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    State / Region
+                  </label>
+                  <select
+                    value={exportState}
+                    onChange={(e) => setExportState(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="all">All States</option>
+                    {availableExportStates.map((st) => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Assigned Engineer
+                  </label>
+                  <select
+                    value={exportEngineer}
+                    onChange={(e) => setExportEngineer(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="all">All Engineers</option>
+                    {availableExportEngineers.map((eng) => (
+                      <option key={eng} value={eng}>{eng}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Live Match Counter Preview */}
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                  <span className="text-xs font-bold text-blue-900">
+                    Matching complaints:
+                  </span>
+                </div>
+                <span className="text-sm font-extrabold text-blue-700 bg-white px-2.5 py-0.5 rounded-full border border-blue-200 shadow-sm">
+                  {customExportMatchCount} tickets
+                </span>
+              </div>
+            </div>
+
+            <div className="shrink-0 flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-3 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setCustomExportOpen(false)}
+                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCustomExportDownload}
+                disabled={exportingCustom}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-50"
+              >
+                <IconDownload size={14} />
+                <span>{exportingCustom ? "Generating Excel..." : "Download Excel (.xlsx)"}</span>
+              </button>
             </div>
           </div>
         </div>
