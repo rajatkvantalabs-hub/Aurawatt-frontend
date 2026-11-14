@@ -1277,6 +1277,98 @@ export async function listComplaints(params: { type?: string; status?: string; v
   return apiGet<ApiPage<Complaint>>("/api/complaints", { page: 1, limit: 5000, ...params });
 }
 
+export function exportComplaintsToCsv(complaints: Complaint[], filenamePrefix = "Aurawatt_Complaints") {
+  const headers = [
+    "S.No",
+    "Ticket ID",
+    "Complaint Date",
+    "Registered At",
+    "Status",
+    "Customer Name",
+    "Customer Phone",
+    "Customer Email",
+    "Product Model",
+    "Serial Number",
+    "State",
+    "District",
+    "Site Location",
+    "Dealer Name",
+    "Assigned Engineer",
+    "Queue / Level",
+    "Priority",
+    "Ticket Source",
+    "SLA Status",
+    "SLA Due Date",
+    "Issue Description",
+    "Hold Reason",
+    "Closed At",
+    "Closed By",
+    "Resolution Notes",
+  ];
+
+  const escapeCsv = (val: unknown) => {
+    if (val === null || val === undefined) return '""';
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const rows = complaints.map((item, index) => {
+    const isClosed = ["Resolved by Aurawatt", "Resolved by Suppliers"].includes(item.status);
+    let slaStatus = "-";
+    if (isClosed) {
+      slaStatus = "Completed";
+    } else if (item.slaPaused || item.status === "On Hold") {
+      slaStatus = "Paused (On Hold)";
+    } else if (item.slaDueAt) {
+      const due = new Date(item.slaDueAt).getTime();
+      slaStatus = Date.now() > due ? "Breached (Overdue)" : "Within SLA";
+    }
+
+    const phone = item.customerPhone || (Array.isArray(item.customerPhones) ? item.customerPhones.join(", ") : "-");
+    const serialNo = item.replacementRequestSerialNo || item.replacementSerialNo || item.productSerialNo || "-";
+
+    return [
+      index + 1,
+      item.ticketNumber || item.id || "-",
+      item.dateOfComplaint ? String(item.dateOfComplaint).slice(0, 10) : "-",
+      item.createdAt ? String(item.createdAt).replace("T", " ").slice(0, 19) : "-",
+      item.status || "-",
+      item.customerName || "-",
+      phone,
+      item.customerEmail || "-",
+      item.productModel || "-",
+      serialNo,
+      item.state || "-",
+      item.district || "-",
+      item.siteLocation || "-",
+      item.dealerName || "-",
+      item.assignedEngineerName || "-",
+      item.escalationLevel || "-",
+      item.priority || "Normal",
+      item.ticketSource || "Direct",
+      slaStatus,
+      item.slaDueAt ? String(item.slaDueAt).replace("T", " ").slice(0, 19) : "-",
+      item.issueDescription || "-",
+      item.holdReason || "-",
+      isClosed && (item.closedAt || item.updatedAt) ? String(item.closedAt || item.updatedAt).replace("T", " ").slice(0, 19) : "-",
+      isClosed ? (item.closedByName || "-") : "-",
+      item.finalResolution || item.closeRemark || item.trackingNotes || "-",
+    ].map(escapeCsv).join(",");
+  });
+
+  const csvContent = "\uFEFF" + [headers.map(escapeCsv).join(","), ...rows].join("\r\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const blobUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  a.download = `${filenamePrefix}_${todayStr}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(blobUrl);
+}
+
 export async function downloadComplaintsExport(params: {
   type?: string;
   status?: string;
@@ -1286,6 +1378,7 @@ export async function downloadComplaintsExport(params: {
   state?: string;
   engineer?: string;
   search?: string;
+  fallbackData?: Complaint[];
 } = {}) {
   const qs = new URLSearchParams();
   if (params.type) qs.set("type", params.type);
@@ -1301,29 +1394,43 @@ export async function downloadComplaintsExport(params: {
   const token = getAuthToken();
   const url = `${base}/api/complaints/export?${qs.toString()}`;
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
 
-  if (!res.ok) {
+    if (res.ok) {
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition");
+      const filenameMatch = disposition && disposition.match(/filename="?([^";]+)"?/);
+      const filename = filenameMatch ? filenameMatch[1] : `Aurawatt_Complaints_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+      return;
+    }
+
+    if (res.status === 404 && params.fallbackData && params.fallbackData.length > 0) {
+      exportComplaintsToCsv(params.fallbackData, "Aurawatt_Complaints");
+      return;
+    }
+
     const errorBody = await res.json().catch(() => ({ message: "Export failed" }));
-    throw new Error(errorBody.message || "Failed to download complaints export");
+    throw new Error(errorBody.message || `Failed to export complaints (HTTP ${res.status})`);
+  } catch (err: any) {
+    if (params.fallbackData && params.fallbackData.length > 0) {
+      exportComplaintsToCsv(params.fallbackData, "Aurawatt_Complaints");
+      return;
+    }
+    throw err;
   }
-
-  const blob = await res.blob();
-  const disposition = res.headers.get("Content-Disposition");
-  const filenameMatch = disposition && disposition.match(/filename="?([^";]+)"?/);
-  const filename = filenameMatch ? filenameMatch[1] : `Aurawatt_Complaints_${new Date().toISOString().slice(0, 10)}.xlsx`;
-
-  const blobUrl = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = blobUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(blobUrl);
 }
 
 export async function listServiceEngineers() {

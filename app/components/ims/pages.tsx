@@ -15484,7 +15484,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     return Array.from(set).sort();
   }, [complaintsRes.data]);
 
-  const customExportMatchCount = useMemo(() => {
+  const customFilteredRows = useMemo(() => {
     const all = complaintsRes.data?.data ?? [];
     return all.filter((c) => {
       if (exportStatus === "closed") {
@@ -15533,14 +15533,20 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         return false;
       }
       return true;
-    }).length;
+    });
   }, [complaintsRes.data, exportStatus, exportPreset, exportFromDate, exportToDate, exportState, exportEngineer, closedComplaintStatuses]);
+
+  const customExportMatchCount = useMemo(() => customFilteredRows.length, [customFilteredRows]);
 
   const handleExportAll = async () => {
     try {
       setExportingAll(true);
       setExportError("");
-      await downloadComplaintsExport({ type: "Consumer", status: "all" });
+      await downloadComplaintsExport({
+        type: "Consumer",
+        status: "all",
+        fallbackData: complaintsRes.data?.data ?? [],
+      });
     } catch (err: any) {
       console.error("Export all complaints failed:", err);
       setExportError(err?.message || "Failed to download complaints export");
@@ -15561,6 +15567,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         toDate: exportPreset === "custom" ? exportToDate : undefined,
         state: exportState !== "all" ? exportState : undefined,
         engineer: exportEngineer !== "all" ? exportEngineer : undefined,
+        fallbackData: customFilteredRows,
       });
       setCustomExportOpen(false);
     } catch (err: any) {
